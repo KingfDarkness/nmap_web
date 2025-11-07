@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MRM Nmap Web Terminal</title>
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.3/dist/tailwind.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
+<style>
+  body { transition: background 0.3s, color 0.3s; }
+  pre { white-space: pre-wrap; word-wrap: break-word; }
+  .scroll-area { overflow-y: auto; max-height: 400px; }
+  .progress-bar { height: 1rem; border-radius: 0.5rem; background: #1e40af; transition: width 0.3s; }
+</style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
+
+<div class="container mx-auto p-6 flex-1 flex flex-col gap-6">
+
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-4xl font-bold tracking-wide">MRM Nmap Web Terminal</h1>
+        <button id="toggleTheme" class="px-4 py-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition">Toggle Theme</button>
+    </div>
+
+    <!-- Command Card -->
+    <div class="bg-gray-800 rounded-xl p-6 shadow-lg flex flex-col gap-4">
+        <label class="block text-lg font-semibold">Select Nmap Command(s)</label>
+        <select id="cmdSelect" multiple></select>
+        <div id="badgeContainer" class="flex flex-wrap gap-2 mt-2"></div>
+
+        <label class="block text-lg font-semibold mt-4">Target (IP or Hostname)</label>
+        <input id="target" placeholder="e.g. 127.0.0.1 or example.com"
+            class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-blue-500 transition">
+
+        <div class="mt-4 flex flex-wrap gap-3">
+            <button id="runBtn" class="bg-blue-600 px-6 py-2 rounded-lg hover:bg-blue-500 transition">Run Command(s)</button>
+            <button id="scriptDownloadBtn" class="bg-green-600 px-6 py-2 rounded-lg hover:bg-green-500 transition">Download .sh</button>
+            <button id="clearOutput" class="bg-red-600 px-6 py-2 rounded-lg hover:bg-red-500 transition">Clear Output</button>
+        </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="bg-gray-700 rounded-xl overflow-hidden h-4 shadow">
+        <div id="progressBar" class="progress-bar w-0"></div>
+    </div>
+
+    <!-- Output Card -->
+    <div class="bg-gray-800 rounded-xl p-4 shadow-lg flex-1 flex flex-col">
+        <div class="flex items-center border-b border-gray-600 mb-3">
+            <button id="tabStdout" class="px-4 py-2 border-b-2 border-blue-500 font-semibold transition">STDOUT</button>
+            <button id="tabStderr" class="px-4 py-2 border-b-2 border-transparent hover:border-blue-500 transition">STDERR</button>
+            <div class="ml-auto flex gap-2">
+                <button id="copyOutput" class="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 transition">Copy</button>
+                <button id="downloadOutput" class="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 transition">Download</button>
+            </div>
+        </div>
+        <pre id="stdoutArea" class="flex-1 scroll-area bg-gray-900 p-4 rounded-lg">No output yet.</pre>
+        <pre id="stderrArea" class="flex-1 scroll-area bg-gray-900 p-4 rounded-lg hidden"></pre>
+    </div>
+</div>
+
+<script>
+const commands = {{ commands | tojson }};
+const cmdSelectEl = document.getElementById('cmdSelect');
+const badgeContainer = document.getElementById('badgeContainer');
+const progressBar = document.getElementById('progressBar');
+
+commands.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.desc;
+    cmdSelectEl.appendChild(opt);
+});
+
+const choices = new Choices('#cmdSelect', { removeItemButton: true, searchEnabled: true });
+
+// Show colored badges for selected commands
+cmdSelectEl.addEventListener('change', updateBadges);
+function updateBadges() {
+    badgeContainer.innerHTML = '';
+    const selected = choices.getValue(true);
+    selected.forEach((id,index)=>{
+        const cmd = commands.find(c=>c.id==id);
+        const colors = ['bg-blue-500','bg-green-500','bg-yellow-500','bg-purple-500','bg-pink-500','bg-indigo-500'];
+        const span = document.createElement('span');
+        span.textContent = cmd.desc;
+        span.className = `text-white px-3 py-1 rounded-full ${colors[index % colors.length]} text-sm`;
+        badgeContainer.appendChild(span);
+    });
+}
+
+let currentTab = 'stdout';
+const stdoutArea = document.getElementById('stdoutArea');
+const stderrArea = document.getElementById('stderrArea');
+
+document.getElementById('tabStdout').addEventListener('click', ()=>{
+    stdoutArea.classList.remove('hidden'); stderrArea.classList.add('hidden'); currentTab='stdout';
+});
+document.getElementById('tabStderr').addEventListener('click', ()=>{
+    stderrArea.classList.remove('hidden'); stdoutArea.classList.add('hidden'); currentTab='stderr';
+});
+
+document.getElementById('clearOutput').addEventListener('click', ()=>{ 
+    stdoutArea.textContent='No output yet.'; stderrArea.textContent=''; 
+    progressBar.style.width='0%';
+});
+
+document.getElementById('copyOutput').addEventListener('click', ()=>{
+    const text = (currentTab==='stdout'? stdoutArea.textContent : stderrArea.textContent);
+    navigator.clipboard.writeText(text);
+    alert("Copied to clipboard");
+});
+
+document.getElementById('downloadOutput').addEventListener('click', ()=>{
+    const text = (currentTab==='stdout'? stdoutArea.textContent : stderrArea.textContent);
+    const blob = new Blob([text], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='mrm_output.txt'; a.click(); URL.revokeObjectURL(url);
+});
+
+// Theme toggle
+document.getElementById('toggleTheme').addEventListener('click', ()=>{
+    if(document.body.classList.contains('bg-gray-900')){
+        document.body.classList.replace('bg-gray-900','bg-white');
+        document.body.classList.replace('text-gray-100','text-gray-900');
+    } else {
+        document.body.classList.replace('bg-white','bg-gray-900');
+        document.body.classList.replace('text-gray-900','text-gray-100');
+    }
+});
+
+// Run commands with progress bar & auto-scroll
+document.getElementById('runBtn').addEventListener('click', async () => {
+    const selIds = choices.getValue(true);
+    const target = document.getElementById('target').value.trim();
+    if(!selIds.length){ alert('Select at least one command'); return; }
+
+    stdoutArea.textContent = ''; stderrArea.textContent=''; 
+    let completed = 0;
+
+    for(const id of selIds){
+        progressBar.style.width = `${(completed/selIds.length)*100}%`;
+        const resp = await fetch('/run', {
+            method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cmd_id:Number(id), target})
+        });
+        const data = await resp.json();
+
+        if(!data.ok){
+            stderrArea.textContent += `Command ID ${id} ERROR: ${data.error}\n`;
+        } else {
+            stdoutArea.textContent += `>>> Command ID ${id}\n${data.stdout}\n(return code: ${data.returncode})\n\n`;
+            if(data.stderr) stderrArea.textContent += `>>> Command ID ${id}\n${data.stderr}\n\n`;
+        }
+        completed++;
+        progressBar.style.width = `${(completed/selIds.length)*100}%`;
+
+        // Auto-scroll
+        stdoutArea.scrollTop = stdoutArea.scrollHeight;
+        stderrArea.scrollTop = stderrArea.scrollHeight;
+    }
+    progressBar.style.width='100%';
+});
+</script>
+</body>
+</html>
